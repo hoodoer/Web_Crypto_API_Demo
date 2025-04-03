@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Web Crypto Demos: Symmetric, Asymmetric, & Hybrid</title>
+    <style>
+      section { border: 1px solid #ccc; padding: 1em; margin: 1em 0; }
+    </style>
+</head>
+<body>
+    <h1>Web Crypto Demos</h1>
+    
+    <!-- Symmetric Demo Section -->
+    <section id="symmetric-demo">
+        <h2>Symmetric Key Demo (AES‑GCM)</h2>
+        <textarea id="symMessage" placeholder="Enter your message for symmetric encryption..." rows="4" cols="50"></textarea><br>
+        <button id="symEncryptBtn">Encrypt & Send to Server</button>
+        <h3>Encrypted Data (Symmetric)</h3>
+        <pre id="symEncryptedData"></pre>
+        <h3>Server Response (Decrypted Message)</h3>
+        <pre id="symServerResponse"></pre>
+    </section>
+
+    <!-- Asymmetric Demo Section -->
+    <section id="asymmetric-demo">
+        <h2>Asymmetric Key Demo (RSA‑OAEP)</h2>
+        <textarea id="asymMessage" placeholder="Enter your message for RSA encryption..." rows="4" cols="50"></textarea><br>
+        <button id="asymEncryptBtn">Encrypt with Public Key & Send to Server</button>
+        <h3>Server’s RSA Public Key</h3>
+        <pre id="publicKeyDisplay"></pre>
+        <h3>Encrypted Data (Asymmetric)</h3>
+        <pre id="asymEncryptedData"></pre>
+        <h3>Server Response (Decrypted Message)</h3>
+        <pre id="asymServerResponse"></pre>
+    </section>
+
+    <!-- Hybrid Demo Section -->
+    <section id="hybrid-demo">
+        <h2>Hybrid Demo: Asymmetric Key Exchange + Symmetric Encryption</h2>
+        <button id="hybridKeyExchangeBtn">Generate RSA Key Pair & Exchange Symmetric Key</button>
+        <h3>Client RSA Public Key</h3>
+        <pre id="clientPublicKeyDisplay"></pre>
+        <h3>Encrypted Symmetric Key from Server</h3>
+        <pre id="encryptedSymKeyDisplay"></pre>
+        <hr>
+        <textarea id="hybridMessage" placeholder="Enter message to encrypt with symmetric key..." rows="4" cols="50"></textarea><br>
+        <button id="hybridEncryptBtn">Encrypt Hybrid Message & Send to Server</button>
+        <h3>Encrypted Hybrid Data</h3>
+        <pre id="hybridEncryptedData"></pre>
+        <h3>Server Response (Decrypted Message)</h3>
+        <pre id="hybridServerResponse"></pre>
+    </section>
+
+    <script>
+    // Helper: ArrayBuffer to Base64
+    function arrayBufferToBase64(buffer) {
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        for (let i = 0; i < bytes.byteLength; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return window.btoa(binary);
+    }
+
+    // Helper: Base64 to ArrayBuffer
+    function base64ToArrayBuffer(base64) {
+        const binary_string = window.atob(base64);
+        const len = binary_string.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binary_string.charCodeAt(i);
+        }
+        return bytes.buffer;
+    }
+
+    // Helper: Convert PEM string to ArrayBuffer (remove header/footer/newlines)
+    function pemToArrayBuffer(pem) {
+        const lines = pem.split('\n');
+        const b64Lines = lines.filter(line => line.trim() && !line.startsWith('-----')).join('');
+        return base64ToArrayBuffer(b64Lines);
+    }
+
+    // ==== Symmetric Demo ====
+    document.getElementById('symEncryptBtn').addEventListener('click', async () => {
+        const message = document.getElementById('symMessage').value;
+        if (!message) {
+            alert('Please enter a message for symmetric encryption.');
+            return;
+        }
+        const encoder = new TextEncoder();
+        const data = encoder.encode(message);
+
+        // Generate symmetric AES-GCM key (256-bit)
+        const key = await window.crypto.subtle.generateKey(
+            { name: "AES-GCM", length: 256 },
+            true,
+            ["encrypt", "decrypt"]
+        );
+
+        // Generate a random IV (12 bytes)
+        const iv = window.crypto.getRandomValues(new Uint8Array(12));
+
+        // Encrypt message
+        const ciphertext = await window.crypto.subtle.encrypt(
+            { name: "AES-GCM", iv: iv },
+            key,
+            data
+        );
+
+        // Export key for demo purposes
+        const exportedKey = await window.crypto.subtle.exportKey("raw", key);
+        const keyB64 = arrayBufferToBase64(exportedKey);
+        const ivB64 = arrayBufferToBase64(iv);
+        const ciphertextB64 = arrayBufferToBase64(ciphertext);
+
+        document.getElementById('symEncryptedData').textContent = JSON.stringify({
+            key: keyB64,
+            iv: ivB64,
+            ciphertext: ciphertextB64
+        }, null, 2);
+
+        const response = await fetch('/decrypt/symmetric', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                key: keyB64,
+                iv: ivB64,
+                ciphertext: ciphertextB64
+            })
+        });
+        const result = await response.json();
+        document.getElementById('symServerResponse').textContent = JSON.stringify(result, null, 2);
+    });
+
+    // ==== Asymmetric Demo ====
+    let rsaPublicKey;
+    async function fetchServerPublicKey() {
+        const response = await fetch('/public-key');
+        const data = await response.json();
+        const pem_b64 = data.public_key;
+        const pem = window.atob(pem_b64);
+        document.getElementById('publicKeyDisplay').textContent = pem;
+        const der = pemToArrayBuffer(pem);
+        rsaPublicKey = await window.crypto.subtle.importKey(
+            "spki",
+            der,
+            { name: "RSA-OAEP", hash: "SHA-256" },
+            true,
+            ["encrypt"]
+        );
+    }
+    fetchServerPublicKey();
+
+    document.getElementById('asymEncryptBtn').addEventListener('click', async () => {
+        const message = document.getElementById('asymMessage').value;
+        if (!message) {
+            alert('Please enter a message for asymmetric encryption.');
+            return;
+        }
+        const encoder = new TextEncoder();
+        const data = encoder.encode(message);
+
+        const ciphertext = await window.crypto.subtle.encrypt(
+            { name: "RSA-OAEP" },
+            rsaPublicKey,
+            data
+        );
+        const ciphertextB64 = arrayBufferToBase64(ciphertext);
+
+        document.getElementById('asymEncryptedData').textContent = JSON.stringify({
+            ciphertext: ciphertextB64
+        }, null, 2);
+
+        const response = await fetch('/decrypt/asymmetric', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ciphertext: ciphertextB64 })
+        });
+        const result = await response.json();
+        document.getElementById('asymServerResponse').textContent = JSON.stringify(result, null, 2);
+    });
+
+    // ==== Hybrid Demo ====
+    let hybridClientKeyPair = null;
+    let hybridSymmetricKey = null; // will hold the imported AES-GCM key after exchange
+
+    document.getElementById('hybridKeyExchangeBtn').addEventListener('click', async () => {
+        // Generate RSA key pair on the client
+        hybridClientKeyPair = await window.crypto.subtle.generateKey(
+            { 
+                name: "RSA-OAEP", 
+                modulusLength: 2048, 
+                publicExponent: new Uint8Array([1, 0, 1]), 
+                hash: "SHA-256" 
+            },
+            true,
+            ["encrypt", "decrypt"]
+        );
+
+        // Export and display the public key in PEM format
+        const exportedPublicKey = await window.crypto.subtle.exportKey("spki", hybridClientKeyPair.publicKey);
+        const publicKeyB64 = arrayBufferToBase64(exportedPublicKey);
+        const pemPublicKey = "-----BEGIN PUBLIC KEY-----\n" + publicKeyB64.match(/.{1,64}/g).join("\n") + "\n-----END PUBLIC KEY-----";
+        document.getElementById('clientPublicKeyDisplay').textContent = pemPublicKey;
+
+        // Prepare the PEM for sending to the server:
+        // We send the entire PEM string as a base64-encoded string.
+        const pemForServerB64 = window.btoa(pemPublicKey);
+
+        // Send the client's public key to the server to exchange for a symmetric key
+        const exchangeResponse = await fetch('/exchange-key', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ client_public_key: pemForServerB64 })
+        });
+        const exchangeData = await exchangeResponse.json();
+        document.getElementById('encryptedSymKeyDisplay').textContent = JSON.stringify(exchangeData, null, 2);
+
+        // Decrypt the encrypted symmetric key using the client's private key
+        const encryptedSymKeyB64 = exchangeData.encrypted_symmetric_key;
+        const encryptedSymKeyBuffer = base64ToArrayBuffer(encryptedSymKeyB64);
+        const decryptedSymKeyBuffer = await window.crypto.subtle.decrypt(
+            { name: "RSA-OAEP" },
+            hybridClientKeyPair.privateKey,
+            encryptedSymKeyBuffer
+        );
+
+        // Import the decrypted symmetric key as a CryptoKey for AES-GCM
+        hybridSymmetricKey = await window.crypto.subtle.importKey(
+            "raw",
+            decryptedSymKeyBuffer,
+            { name: "AES-GCM" },
+            false,
+            ["encrypt"]
+        );
+    });
+
+    document.getElementById('hybridEncryptBtn').addEventListener('click', async () => {
+        const message = document.getElementById('hybridMessage').value;
+        if (!message) {
+            alert('Please enter a message for hybrid encryption.');
+            return;
+        }
+        const encoder = new TextEncoder();
+        const data = encoder.encode(message);
+
+        // Generate a new IV for the AES-GCM encryption
+        const iv = window.crypto.getRandomValues(new Uint8Array(12));
+        const ciphertext = await window.crypto.subtle.encrypt(
+            { name: "AES-GCM", iv: iv },
+            hybridSymmetricKey,
+            data
+        );
+        const ciphertextB64 = arrayBufferToBase64(ciphertext);
+        const ivB64 = arrayBufferToBase64(iv);
+
+        document.getElementById('hybridEncryptedData').textContent = JSON.stringify({
+            iv: ivB64,
+            ciphertext: ciphertextB64
+        }, null, 2);
+
+        const response = await fetch('/decrypt/hybrid', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                iv: ivB64,
+                ciphertext: ciphertextB64
+            })
+        });
+        const result = await response.json();
+        document.getElementById('hybridServerResponse').textContent = JSON.stringify(result, null, 2);
+    });
+    </script>
+</body>
+</html>
