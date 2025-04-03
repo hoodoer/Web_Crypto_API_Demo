@@ -1,5 +1,6 @@
 # Web_Crypto_API_Demo
-Demo server and client-side JavaScript code for how to use Web Crypto API to do application level encryption for your web traffic. 
+Demo server and client-side JavaScript code for how to use Web Crypto API to do application level encryption for your web traffic.<br>
+Setup to match TrustedSec blog, link to which will be updated later. 
 
 # Setup
 mkdir webCryptDemo<br>
