@@ -11,6 +11,8 @@ git clone https://github.com/hoodoer/Web_Crypto_API_Demo.git<br>
 cd Web_Crypto_API_Demo<br>
 pip3 install -r  requirements.txt<br>
 python3 server.py<br>
+<br>
+Then you can access the demo app at http://127.0.0.1:5000<br>
 
 
 # Contact
